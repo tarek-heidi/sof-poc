@@ -27,6 +27,8 @@
     lastCreatedLocation: null
   };
 
+  const LAST_DOCREF_LOCATION_KEY = "heidi_last_docref_location";
+
   function setOutput(value) {
     ui.output.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   }
@@ -122,7 +124,41 @@
     const text = preferred.text || "";
     const full = (given + " " + family).trim();
 
-    return text || full || "-";
+    if (text || full) {
+      return text || full;
+    }
+
+    // Oracle resources may occasionally omit structured name but include narrative text.
+    if (resource.text && typeof resource.text.div === "string") {
+      const plain = resource.text.div.replace(/<[^>]+>/g, " ");
+      const normalized = plain.replace(/\s+/g, " ").trim();
+      const match = normalized.match(/Name\(s\)\s*:\s*([^:]+?)(?:\s+[A-Za-z ]+\s*:|$)/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+
+    return "-";
+  }
+
+  function getEncounterDate(encounter) {
+    if (!encounter) {
+      return "-";
+    }
+
+    if (encounter.period && encounter.period.start) {
+      return formatHumanDate(encounter.period.start);
+    }
+
+    if (encounter.period && encounter.period.end) {
+      return formatHumanDate(encounter.period.end);
+    }
+
+    if (encounter.meta && encounter.meta.lastUpdated) {
+      return formatHumanDate(encounter.meta.lastUpdated);
+    }
+
+    return "-";
   }
 
   async function loadSessionSummaryResources() {
@@ -158,10 +194,9 @@
       tasks.push(
         state.client.request("Encounter/" + state.encounterId).then(function (encounter) {
           state.encounter = encounter;
-          const dateValue = (encounter.period && (encounter.period.start || encounter.period.end)) || encounter.meta && encounter.meta.lastUpdated;
-          ui.encounterDate.textContent = formatHumanDate(dateValue);
+          ui.encounterDate.textContent = getEncounterDate(encounter);
         }).catch(function () {
-          ui.encounterDate.textContent = "Unavailable";
+          ui.encounterDate.textContent = "Unavailable (Encounter read not granted)";
         })
       );
     } else {
@@ -276,6 +311,9 @@
       }
 
       state.lastCreatedLocation = location;
+      if (location) {
+        localStorage.setItem(LAST_DOCREF_LOCATION_KEY, location);
+      }
       ui.verifyDocRefBtn.disabled = !location;
 
       setOutput({
@@ -409,6 +447,14 @@
       ui.practitionerName.textContent = "-";
       ui.encounterDate.textContent = "-";
 
+      const persistedLocation = localStorage.getItem(LAST_DOCREF_LOCATION_KEY);
+      if (persistedLocation) {
+        state.lastCreatedLocation = persistedLocation;
+        ui.verifyDocRefBtn.disabled = false;
+      } else {
+        ui.verifyDocRefBtn.disabled = true;
+      }
+
       if (!state.patientId) {
         setSessionStatus("SMART session found, but no patient context.", "warn");
         setOutput({
@@ -437,6 +483,7 @@
         details: error && error.message ? error.message : String(error),
         nextStep: "Open launch.html from your Oracle SMART launch URL."
       });
+      ui.verifyDocRefBtn.disabled = true;
     }
   }
 
