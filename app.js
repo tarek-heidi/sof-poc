@@ -3,6 +3,7 @@
     sessionStatus: document.getElementById("session-status"),
     fhirBase: document.getElementById("fhir-base"),
     patientId: document.getElementById("patient-id"),
+    encounterId: document.getElementById("encounter-id"),
     practitionerId: document.getElementById("practitioner-id"),
     loadPatientBtn: document.getElementById("load-patient-btn"),
     postDocRefBtn: document.getElementById("post-docref-btn"),
@@ -14,7 +15,9 @@
   const state = {
     client: null,
     patient: null,
-    practitionerId: null
+    practitionerId: null,
+    patientId: null,
+    encounterId: null
   };
 
   function setOutput(value) {
@@ -52,9 +55,46 @@
     return null;
   }
 
+  function getLaunchErrorFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    if (!error) {
+      return null;
+    }
+
+    return {
+      error: error,
+      error_description: params.get("error_description") || null,
+      error_uri: params.get("error_uri") || null
+    };
+  }
+
+  function parsePatientId(client) {
+    if (client.patient && client.patient.id) {
+      return client.patient.id;
+    }
+
+    const token = (client.state && client.state.tokenResponse) || {};
+    if (typeof token.patient === "string" && token.patient.length > 0) {
+      return token.patient;
+    }
+
+    return null;
+  }
+
+  function parseEncounterId(client) {
+    const token = (client.state && client.state.tokenResponse) || {};
+    if (typeof token.encounter === "string" && token.encounter.length > 0) {
+      return token.encounter;
+    }
+
+    return null;
+  }
+
   function buildDocumentReference() {
-    const patientId = state.client.patient && state.client.patient.id;
+    const patientId = state.patientId;
     const practitionerId = state.practitionerId;
+    const encounterId = state.encounterId;
     const appConfig = window.APP_CONFIG || {};
     const docType = appConfig.docType || {};
     const title = ui.docTitle.value.trim() || "HEIDI Sandbox Test Document";
@@ -69,7 +109,7 @@
       throw new Error("Missing practitioner ID from SMART token (fhirUser).");
     }
 
-    return {
+    const documentReference = {
       resourceType: "DocumentReference",
       status: "current",
       docStatus: "final",
@@ -109,6 +149,16 @@
         }
       }
     };
+
+    if (encounterId) {
+      documentReference.context.encounter = [
+        {
+          reference: "Encounter/" + encounterId
+        }
+      ];
+    }
+
+    return documentReference;
   }
 
   async function postDocumentReference() {
@@ -162,7 +212,7 @@
   }
 
   async function loadPatient() {
-    if (!state.client || !state.client.patient || !state.client.patient.id) {
+    if (!state.client || !state.patientId) {
       setOutput({ error: "Patient context is missing." });
       return;
     }
@@ -170,7 +220,7 @@
     try {
       ui.loadPatientBtn.disabled = true;
       setOutput("Loading patient...");
-      const patient = await state.client.request("Patient/" + state.client.patient.id);
+      const patient = await state.client.request("Patient/" + state.patientId);
       state.patient = patient;
       setOutput(patient);
     } catch (error) {
@@ -188,21 +238,37 @@
   async function init() {
     wireActions();
 
+    const launchError = getLaunchErrorFromUrl();
+    if (launchError) {
+      setSessionStatus("SMART launch returned an error.", "err");
+      setOutput({
+        error: "Authorization server returned an OAuth error.",
+        details: launchError,
+        hints: [
+          "Confirm Oracle app Launch URL is /launch.html",
+          "Confirm Redirect URI is /index.html (exact match)",
+          "Confirm configured scope is supported by the Oracle app"
+        ]
+      });
+      return;
+    }
+
     try {
       const client = await FHIR.oauth2.ready();
       state.client = client;
       state.practitionerId = parsePractitionerId(client);
-
-      const patientId = client.patient && client.patient.id ? client.patient.id : null;
+      state.patientId = parsePatientId(client);
+      state.encounterId = parseEncounterId(client);
 
       ui.fhirBase.textContent = client.state && client.state.serverUrl ? client.state.serverUrl : "-";
-      ui.patientId.textContent = patientId || "No patient in token";
+      ui.patientId.textContent = state.patientId || "No patient in token";
+      ui.encounterId.textContent = state.encounterId || "No encounter in token";
       ui.practitionerId.textContent = state.practitionerId || "No practitioner in token";
 
-      if (!patientId) {
+      if (!state.patientId) {
         setSessionStatus("SMART session found, but no patient context.", "warn");
         setOutput({
-          warning: "No patient context. Ensure app is launched with launch/patient scope."
+          warning: "No patient context in token. For EHR launch, verify launch scope and patient permissions."
         });
         return;
       }

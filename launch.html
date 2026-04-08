@@ -33,17 +33,32 @@
         const config = window.APP_CONFIG || {};
         const redirectUri = new URL(config.redirectPath || "index.html", window.location.href).toString();
         const debug = document.getElementById("debug");
+        const params = new URLSearchParams(window.location.search);
+        const iss = params.get("iss");
+        const launch = params.get("launch");
 
         debug.textContent =
           "redirectUri: " + redirectUri + "\n" +
           "clientId: " + (config.clientId || "MISSING_CLIENT_ID") + "\n" +
-          "scope: " + (config.scope || "MISSING_SCOPE");
+          "scope: " + (config.scope || "MISSING_SCOPE") + "\n" +
+          "iss: " + (iss || "MISSING_ISS") + "\n" +
+          "launch: " + (launch || "MISSING_LAUNCH");
 
-        FHIR.oauth2.authorize({
+        const authorizeOptions = {
           clientId: config.clientId,
           scope: config.scope,
-          redirectUri
-        }).catch(function (error) {
+          redirectUri: redirectUri
+        };
+
+        // Oracle/Cerner EHR launch requires launch context to be propagated.
+        if (iss) {
+          authorizeOptions.iss = iss;
+        }
+        if (launch) {
+          authorizeOptions.launch = launch;
+        }
+
+        FHIR.oauth2.authorize(authorizeOptions).catch(function (error) {
           debug.textContent += "\n\nLaunch error: " + (error && error.message ? error.message : String(error));
         });
       })();
