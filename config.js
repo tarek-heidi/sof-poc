@@ -3,7 +3,7 @@ window.APP_CONFIG = {
   clientId: "2c821a93-5832-45d3-bf36-9a10311c582f",
 
   // Oracle EHR launch scope set (includes encounter read for context debugging).
-  scope: "launch patient/Patient.r patient/Encounter.r patient/DocumentReference.rs user/DocumentReference.c openid profile fhirUser online_access",
+  scope: "launch patient/Patient.r patient/Encounter.r patient/DocumentReference.crus user/DocumentReference.crus openid profile fhirUser online_access",
 
   // `launch.html` will redirect to this page after auth.
   redirectPath: "index.html",
