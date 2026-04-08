@@ -276,10 +276,78 @@
     return documentReference;
   }
 
+  function openRequestPreview(payload, endpointUrl) {
+    return new Promise(function (resolve) {
+      const preview = {
+        method: "POST",
+        url: endpointUrl,
+        headers: {
+          accept: "application/fhir+json",
+          "content-type": "application/fhir+json",
+          authorization: "Bearer <redacted>"
+        },
+        body: payload
+      };
+
+      const popup = window.open("", "_blank", "width=900,height=760");
+      if (!popup) {
+        const accepted = window.confirm(
+          "Popup blocked. Proceed with POST DocumentReference?\n\n" +
+          JSON.stringify(preview, null, 2)
+        );
+        resolve(accepted);
+        return;
+      }
+
+      const html = [
+        "<!doctype html>",
+        "<html><head><meta charset=\"UTF-8\"><title>Request Preview</title>",
+        "<style>",
+        "body{font-family:Arial,sans-serif;margin:16px;color:#111827;}",
+        "h1{margin-top:0;}",
+        "pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;}",
+        "button{background:#2563eb;border:none;color:#fff;padding:10px 14px;border-radius:6px;cursor:pointer;margin-right:8px;}",
+        ".cancel{background:#6b7280;}",
+        "</style></head><body>",
+        "<h1>DocumentReference Request Preview</h1>",
+        "<p>Review request data before sending to Oracle/Cerner.</p>",
+        "<pre id=\"payload\"></pre>",
+        "<button id=\"send\">Send Request</button>",
+        "<button id=\"cancel\" class=\"cancel\">Cancel</button>",
+        "<script>",
+        "const data=" + JSON.stringify(preview) + ";",
+        "document.getElementById('payload').textContent=JSON.stringify(data,null,2);",
+        "document.getElementById('send').addEventListener('click',()=>{window.opener && window.opener.postMessage({type:'docref-preview-decision',allow:true},window.location.origin);window.close();});",
+        "document.getElementById('cancel').addEventListener('click',()=>{window.opener && window.opener.postMessage({type:'docref-preview-decision',allow:false},window.location.origin);window.close();});",
+        "</" + "script>",
+        "</body></html>"
+      ].join("");
+
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+
+      function onMessage(event) {
+        if (event.origin !== window.location.origin) {
+          return;
+        }
+
+        if (!event.data || event.data.type !== "docref-preview-decision") {
+          return;
+        }
+
+        window.removeEventListener("message", onMessage);
+        resolve(Boolean(event.data.allow));
+      }
+
+      window.addEventListener("message", onMessage);
+    });
+  }
+
   async function postDocumentReference() {
     try {
       ui.postDocRefBtn.disabled = true;
-      setOutput("Posting DocumentReference...");
+      setOutput("Preparing DocumentReference request...");
 
       const payload = buildDocumentReference();
       const token = state.client.state && state.client.state.tokenResponse
@@ -291,7 +359,18 @@
       }
 
       const base = state.client.state.serverUrl.replace(/\/$/, "");
-      const response = await fetch(base + "/DocumentReference", {
+      const requestUrl = base + "/DocumentReference";
+      const proceed = await openRequestPreview(payload, requestUrl);
+      if (!proceed) {
+        setOutput({
+          message: "POST cancelled from preview window.",
+          payloadPreview: payload
+        });
+        return;
+      }
+
+      setOutput("Posting DocumentReference...");
+      const response = await fetch(requestUrl, {
         method: "POST",
         headers: {
           "authorization": "Bearer " + token,
