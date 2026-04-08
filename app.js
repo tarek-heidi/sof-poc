@@ -3,10 +3,14 @@
     sessionStatus: document.getElementById("session-status"),
     fhirBase: document.getElementById("fhir-base"),
     patientId: document.getElementById("patient-id"),
+    patientName: document.getElementById("patient-name"),
     encounterId: document.getElementById("encounter-id"),
+    encounterDate: document.getElementById("encounter-date"),
     practitionerId: document.getElementById("practitioner-id"),
+    practitionerName: document.getElementById("practitioner-name"),
     loadPatientBtn: document.getElementById("load-patient-btn"),
     postDocRefBtn: document.getElementById("post-docref-btn"),
+    verifyDocRefBtn: document.getElementById("verify-docref-btn"),
     docTitle: document.getElementById("doc-title"),
     docText: document.getElementById("doc-text"),
     output: document.getElementById("output")
@@ -17,7 +21,10 @@
     patient: null,
     practitionerId: null,
     patientId: null,
-    encounterId: null
+    encounterId: null,
+    practitioner: null,
+    encounter: null,
+    lastCreatedLocation: null
   };
 
   function setOutput(value) {
@@ -89,6 +96,79 @@
     }
 
     return null;
+  }
+
+  function formatHumanDate(value) {
+    if (!value) {
+      return "-";
+    }
+
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return value;
+    }
+
+    return d.toISOString();
+  }
+
+  function getHumanName(resource) {
+    if (!resource || !Array.isArray(resource.name) || resource.name.length === 0) {
+      return "-";
+    }
+
+    const preferred = resource.name[0];
+    const given = Array.isArray(preferred.given) ? preferred.given.join(" ") : "";
+    const family = preferred.family || "";
+    const text = preferred.text || "";
+    const full = (given + " " + family).trim();
+
+    return text || full || "-";
+  }
+
+  async function loadSessionSummaryResources() {
+    const tasks = [];
+
+    if (state.patientId) {
+      tasks.push(
+        state.client.request("Patient/" + state.patientId).then(function (patient) {
+          state.patient = patient;
+          ui.patientName.textContent = getHumanName(patient);
+        }).catch(function () {
+          ui.patientName.textContent = "Unavailable";
+        })
+      );
+    } else {
+      ui.patientName.textContent = "-";
+    }
+
+    if (state.practitionerId) {
+      tasks.push(
+        state.client.request("Practitioner/" + state.practitionerId).then(function (practitioner) {
+          state.practitioner = practitioner;
+          ui.practitionerName.textContent = getHumanName(practitioner);
+        }).catch(function () {
+          ui.practitionerName.textContent = "Unavailable";
+        })
+      );
+    } else {
+      ui.practitionerName.textContent = "-";
+    }
+
+    if (state.encounterId) {
+      tasks.push(
+        state.client.request("Encounter/" + state.encounterId).then(function (encounter) {
+          state.encounter = encounter;
+          const dateValue = (encounter.period && (encounter.period.start || encounter.period.end)) || encounter.meta && encounter.meta.lastUpdated;
+          ui.encounterDate.textContent = formatHumanDate(dateValue);
+        }).catch(function () {
+          ui.encounterDate.textContent = "Unavailable";
+        })
+      );
+    } else {
+      ui.encounterDate.textContent = "-";
+    }
+
+    await Promise.allSettled(tasks);
   }
 
   function buildDocumentReference() {
@@ -195,6 +275,9 @@
         );
       }
 
+      state.lastCreatedLocation = location;
+      ui.verifyDocRefBtn.disabled = !location;
+
       setOutput({
         message: "DocumentReference created.",
         status: response.status,
@@ -211,6 +294,62 @@
     }
   }
 
+  async function verifyCreatedDocumentReference() {
+    if (!state.lastCreatedLocation) {
+      setOutput({
+        error: "No created DocumentReference location to verify yet."
+      });
+      return;
+    }
+
+    try {
+      ui.verifyDocRefBtn.disabled = true;
+      setOutput("Verifying DocumentReference from Location...");
+
+      const token = state.client.state && state.client.state.tokenResponse
+        ? state.client.state.tokenResponse.access_token
+        : null;
+
+      if (!token) {
+        throw new Error("Access token is missing.");
+      }
+
+      const response = await fetch(state.lastCreatedLocation, {
+        method: "GET",
+        headers: {
+          "authorization": "Bearer " + token,
+          "accept": "application/fhir+json"
+        }
+      });
+
+      const responseText = await response.text();
+      if (!response.ok) {
+        throw new Error(
+          "Verification GET failed (" + response.status + "): " + (responseText || "No body returned")
+        );
+      }
+
+      let parsed = responseText;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (_) {
+        // Keep plain text if response is not JSON.
+      }
+
+      setOutput({
+        message: "Verified created DocumentReference.",
+        location: state.lastCreatedLocation,
+        resource: parsed
+      });
+    } catch (error) {
+      setOutput({
+        error: error.message || String(error)
+      });
+    } finally {
+      ui.verifyDocRefBtn.disabled = false;
+    }
+  }
+
   async function loadPatient() {
     if (!state.client || !state.patientId) {
       setOutput({ error: "Patient context is missing." });
@@ -222,6 +361,7 @@
       setOutput("Loading patient...");
       const patient = await state.client.request("Patient/" + state.patientId);
       state.patient = patient;
+      ui.patientName.textContent = getHumanName(patient);
       setOutput(patient);
     } catch (error) {
       setOutput({ error: error.message || String(error) });
@@ -233,6 +373,7 @@
   function wireActions() {
     ui.loadPatientBtn.addEventListener("click", loadPatient);
     ui.postDocRefBtn.addEventListener("click", postDocumentReference);
+    ui.verifyDocRefBtn.addEventListener("click", verifyCreatedDocumentReference);
   }
 
   async function init() {
@@ -264,6 +405,9 @@
       ui.patientId.textContent = state.patientId || "No patient in token";
       ui.encounterId.textContent = state.encounterId || "No encounter in token";
       ui.practitionerId.textContent = state.practitionerId || "No practitioner in token";
+      ui.patientName.textContent = "-";
+      ui.practitionerName.textContent = "-";
+      ui.encounterDate.textContent = "-";
 
       if (!state.patientId) {
         setSessionStatus("SMART session found, but no patient context.", "warn");
@@ -284,6 +428,7 @@
 
       ui.loadPatientBtn.disabled = false;
       ui.postDocRefBtn.disabled = false;
+      await loadSessionSummaryResources();
     } catch (error) {
       setSessionStatus("SMART session not ready.", "err");
       ui.fhirBase.textContent = "-";
