@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SMART Launch</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 24px;
+        color: #111827;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        background: #f3f4f6;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <h1>Starting SMART Launch</h1>
+    <p>If launch does not continue, check configuration in <code>config.js</code>.</p>
+    <div id="debug" class="mono"></div>
+    <script>
+      (function () {
+        const config = window.APP_CONFIG || {};
+        const redirectUri = new URL(config.redirectPath || "index.html", window.location.href).toString();
+        const debug = document.getElementById("debug");
+
+        debug.textContent =
+          "redirectUri: " + redirectUri + "\n" +
+          "clientId: " + (config.clientId || "MISSING_CLIENT_ID") + "\n" +
+          "scope: " + (config.scope || "MISSING_SCOPE");
+
+        FHIR.oauth2.authorize({
+          clientId: config.clientId,
+          scope: config.scope,
+          redirectUri
+        }).catch(function (error) {
+          debug.textContent += "\n\nLaunch error: " + (error && error.message ? error.message : String(error));
+        });
+      })();
+    </script>
+  </body>
+</html>
