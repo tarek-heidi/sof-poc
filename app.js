@@ -9,6 +9,8 @@
     practitionerId: document.getElementById("practitioner-id"),
     practitionerName: document.getElementById("practitioner-name"),
     loadPatientBtn: document.getElementById("load-patient-btn"),
+    loadChiefComplaintBtn: document.getElementById("load-chief-complaint-btn"),
+    chiefComplaint: document.getElementById("chief-complaint"),
     postDocRefBtn: document.getElementById("post-docref-btn"),
     verifyDocRefBtn: document.getElementById("verify-docref-btn"),
     docTitle: document.getElementById("doc-title"),
@@ -24,7 +26,8 @@
     encounterId: null,
     practitioner: null,
     encounter: null,
-    lastCreatedLocation: null
+    lastCreatedLocation: null,
+    chiefComplaint: null
   };
 
   const LAST_DOCREF_LOCATION_KEY = "heidi_last_docref_location";
@@ -487,8 +490,96 @@
     }
   }
 
+  function extractChiefComplaintText(responseBody) {
+    if (!responseBody || !Array.isArray(responseBody.items) || responseBody.items.length === 0) {
+      return "No chief complaint returned";
+    }
+
+    const item = responseBody.items[0];
+    const candidates = [
+      item.chiefComplaint,
+      item.chiefComplaintText,
+      item.text,
+      item.description,
+      item.display,
+      item.value
+    ];
+
+    for (let i = 0; i < candidates.length; i += 1) {
+      const value = candidates[i];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    if (item.nomenclature && typeof item.nomenclature.display === "string" && item.nomenclature.display) {
+      return item.nomenclature.display;
+    }
+
+    return JSON.stringify(item);
+  }
+
+  async function loadChiefComplaint() {
+    if (!state.client || !state.patientId) {
+      setOutput({ error: "Patient context is missing." });
+      return;
+    }
+
+    if (!state.encounterId) {
+      setOutput({ error: "Encounter context is missing. Chief complaint endpoint requires encounterId." });
+      return;
+    }
+
+    if (!window.ChiefComplaintApi || typeof window.ChiefComplaintApi.fetchChiefComplaints !== "function") {
+      setOutput({ error: "Chief complaint module not loaded." });
+      return;
+    }
+
+    const token = state.client.state && state.client.state.tokenResponse
+      ? state.client.state.tokenResponse.access_token
+      : null;
+
+    if (!token) {
+      setOutput({ error: "Access token is missing." });
+      return;
+    }
+
+    try {
+      ui.loadChiefComplaintBtn.disabled = true;
+      setOutput("Loading chief complaint...");
+
+      const result = await window.ChiefComplaintApi.fetchChiefComplaints({
+        accessToken: token,
+        fhirServerUrl: state.client.state.serverUrl,
+        patientId: state.patientId,
+        encounterId: state.encounterId,
+        limit: 1
+      });
+
+      state.chiefComplaint = result.body;
+      ui.chiefComplaint.textContent = extractChiefComplaintText(result.body);
+
+      setOutput({
+        message: "Chief complaint loaded.",
+        endpoint: result.endpoint,
+        status: result.status,
+        nextPage: result.nextPage || null,
+        previousPage: result.previousPage || null,
+        responseBody: result.body
+      });
+    } catch (error) {
+      ui.chiefComplaint.textContent = "Unavailable";
+      setOutput({
+        error: error.message || String(error)
+      });
+    } finally {
+      ui.loadChiefComplaintBtn.disabled = false;
+    }
+  }
+
   function wireActions() {
     ui.loadPatientBtn.addEventListener("click", loadPatient);
+    ui.loadChiefComplaintBtn.addEventListener("click", loadChiefComplaint);
     ui.postDocRefBtn.addEventListener("click", postDocumentReference);
     ui.verifyDocRefBtn.addEventListener("click", verifyCreatedDocumentReference);
   }
@@ -525,6 +616,7 @@
       ui.patientName.textContent = "-";
       ui.practitionerName.textContent = "-";
       ui.encounterDate.textContent = "-";
+      ui.chiefComplaint.textContent = "-";
 
       const persistedLocation = localStorage.getItem(LAST_DOCREF_LOCATION_KEY);
       if (persistedLocation) {
@@ -552,6 +644,7 @@
       }
 
       ui.loadPatientBtn.disabled = false;
+      ui.loadChiefComplaintBtn.disabled = !state.encounterId;
       ui.postDocRefBtn.disabled = false;
       await loadSessionSummaryResources();
     } catch (error) {
