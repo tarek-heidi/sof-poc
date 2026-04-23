@@ -50,14 +50,23 @@
     }
 
     const endpoint = buildEndpoint(fhirServerUrl, patientId, encounterId, limit);
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        authorization: "Bearer " + accessToken,
-        accept: "application/json",
-        "opc-request-id": "heidi-chief-complaint-" + Date.now()
-      }
-    });
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          authorization: "Bearer " + accessToken,
+          accept: "application/json"
+        }
+      });
+    } catch (error) {
+      throw new Error(
+        "Chief complaint request was blocked before reaching Oracle API. " +
+          "This is usually a browser CORS restriction for api.cernermillennium.com from GitHub Pages. " +
+          "Use a small backend proxy for this endpoint. Original error: " +
+          (error && error.message ? error.message : String(error))
+      );
+    }
 
     const bodyText = await response.text();
     let parsedBody = null;
