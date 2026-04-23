@@ -511,6 +511,9 @@
       fhirServerUrl: state.client.state.serverUrl,
       patientId: state.patientId,
       encounterId: state.encounterId,
+      accessToken: state.client.state.tokenResponse && state.client.state.tokenResponse.access_token
+        ? state.client.state.tokenResponse.access_token
+        : "<ACCESS_TOKEN>",
       limit: 1
     });
 
@@ -529,7 +532,7 @@
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(command);
         setOutput({
-          message: "Chief complaint curl copied. Paste it in terminal and replace <ACCESS_TOKEN>."
+          message: "Chief complaint curl copied with access token included."
         });
         return;
       }
@@ -541,7 +544,7 @@
       document.execCommand("copy");
       document.body.removeChild(textarea);
       setOutput({
-        message: "Chief complaint curl copied. Paste it in terminal and replace <ACCESS_TOKEN>."
+        message: "Chief complaint curl copied with access token included."
       });
     } catch (error) {
       setOutput({
