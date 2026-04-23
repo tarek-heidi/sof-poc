@@ -31,6 +31,19 @@
     return endpoint.toString();
   }
 
+  function buildCurlCommand(options) {
+    const opts = options || {};
+    const endpoint = buildEndpoint(opts.fhirServerUrl, opts.patientId, opts.encounterId, opts.limit);
+    const token = opts.accessToken || "<ACCESS_TOKEN>";
+
+    return [
+      "curl -X GET \\",
+      "  -H \"Authorization: Bearer " + token + "\" \\",
+      "  -H \"Accept: application/json\" \\",
+      "  \"" + endpoint + "\""
+    ].join("\n");
+  }
+
   async function fetchChiefComplaints(options) {
     const opts = options || {};
     const patientId = opts.patientId;
@@ -95,6 +108,8 @@
   }
 
   window.ChiefComplaintApi = {
-    fetchChiefComplaints: fetchChiefComplaints
+    fetchChiefComplaints: fetchChiefComplaints,
+    buildEndpoint: buildEndpoint,
+    buildCurlCommand: buildCurlCommand
   };
 })();

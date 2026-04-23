@@ -11,6 +11,8 @@
     loadPatientBtn: document.getElementById("load-patient-btn"),
     loadChiefComplaintBtn: document.getElementById("load-chief-complaint-btn"),
     chiefComplaint: document.getElementById("chief-complaint"),
+    chiefComplaintCurl: document.getElementById("chief-complaint-curl"),
+    copyChiefCurlBtn: document.getElementById("copy-chief-curl-btn"),
     postDocRefBtn: document.getElementById("post-docref-btn"),
     verifyDocRefBtn: document.getElementById("verify-docref-btn"),
     docTitle: document.getElementById("doc-title"),
@@ -490,6 +492,65 @@
     }
   }
 
+  function refreshChiefComplaintCurlCommand() {
+    if (!window.ChiefComplaintApi || typeof window.ChiefComplaintApi.buildCurlCommand !== "function") {
+      ui.chiefComplaintCurl.textContent = "Chief complaint helper module not loaded.";
+      ui.copyChiefCurlBtn.disabled = true;
+      return;
+    }
+
+    if (!state.client || !state.patientId || !state.encounterId) {
+      ui.chiefComplaintCurl.textContent =
+        "Waiting for patient/encounter context.\n" +
+        "Once SMART context is available, the curl command will appear here.";
+      ui.copyChiefCurlBtn.disabled = true;
+      return;
+    }
+
+    const command = window.ChiefComplaintApi.buildCurlCommand({
+      fhirServerUrl: state.client.state.serverUrl,
+      patientId: state.patientId,
+      encounterId: state.encounterId,
+      limit: 1
+    });
+
+    ui.chiefComplaintCurl.textContent = command;
+    ui.copyChiefCurlBtn.disabled = false;
+  }
+
+  async function copyChiefComplaintCurl() {
+    const command = ui.chiefComplaintCurl.textContent;
+    if (!command || command.indexOf("curl -X GET") !== 0) {
+      setOutput({ error: "No curl command available to copy yet." });
+      return;
+    }
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(command);
+        setOutput({
+          message: "Chief complaint curl copied. Paste it in terminal and replace <ACCESS_TOKEN>."
+        });
+        return;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = command;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setOutput({
+        message: "Chief complaint curl copied. Paste it in terminal and replace <ACCESS_TOKEN>."
+      });
+    } catch (error) {
+      setOutput({
+        error: "Failed to copy command. Copy it manually from the session section.",
+        details: error && error.message ? error.message : String(error)
+      });
+    }
+  }
+
   function extractChiefComplaintText(responseBody) {
     if (!responseBody || !Array.isArray(responseBody.items) || responseBody.items.length === 0) {
       return "No chief complaint returned";
@@ -580,6 +641,7 @@
   function wireActions() {
     ui.loadPatientBtn.addEventListener("click", loadPatient);
     ui.loadChiefComplaintBtn.addEventListener("click", loadChiefComplaint);
+    ui.copyChiefCurlBtn.addEventListener("click", copyChiefComplaintCurl);
     ui.postDocRefBtn.addEventListener("click", postDocumentReference);
     ui.verifyDocRefBtn.addEventListener("click", verifyCreatedDocumentReference);
   }
@@ -617,6 +679,7 @@
       ui.practitionerName.textContent = "-";
       ui.encounterDate.textContent = "-";
       ui.chiefComplaint.textContent = "-";
+      refreshChiefComplaintCurlCommand();
 
       const persistedLocation = localStorage.getItem(LAST_DOCREF_LOCATION_KEY);
       if (persistedLocation) {
@@ -647,6 +710,7 @@
       ui.loadChiefComplaintBtn.disabled = !state.encounterId;
       ui.postDocRefBtn.disabled = false;
       await loadSessionSummaryResources();
+      refreshChiefComplaintCurlCommand();
     } catch (error) {
       setSessionStatus("SMART session not ready.", "err");
       ui.fhirBase.textContent = "-";
@@ -656,6 +720,7 @@
         nextStep: "Open launch.html from your Oracle SMART launch URL."
       });
       ui.verifyDocRefBtn.disabled = true;
+      ui.copyChiefCurlBtn.disabled = true;
     }
   }
 
